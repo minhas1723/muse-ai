@@ -1,0 +1,46 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build extension
+        run: npm run build
+
+      - name: Create zip
+        run: cd dist && zip -r ../muse-${{ github.ref_name }}.zip .
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: muse-${{ github.ref_name }}.zip
+          generate_release_notes: true
+          body: |
+            ## Muse ${{ github.ref_name }}
+
+            **Free AI chat, powered by your Google quota.**
+
+            ### Install
+            1. Download `muse-${{ github.ref_name }}.zip` below
+            2. Unzip it
+            3. Open `chrome://extensions`
+            4. Enable **Developer mode** (top right)
+            5. Click **Load unpacked** → select the unzipped folder
