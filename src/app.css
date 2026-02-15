@@ -1,0 +1,191 @@
+@import "tailwindcss";
+
+@theme {
+  /* ─── Colors (Dynamic) ─── */
+  --color-bg-primary: var(--bg-primary);
+  --color-bg-secondary: var(--bg-secondary);
+  --color-bg-tertiary: var(--bg-tertiary);
+  --color-bg-hover: var(--bg-hover);
+  --color-bg-active: var(--bg-active);
+
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-tertiary: var(--text-tertiary);
+  --color-text-muted: var(--text-muted);
+
+  --color-accent-primary: var(--accent-primary);
+  --color-accent-secondary: var(--accent-secondary);
+
+  --color-border: var(--border);
+  --color-border-subtle: var(--border-subtle);
+
+  --color-user-bg: var(--user-bg);
+  --color-bg-chat-input: var(--bg-chat-input);
+
+  /* ─── Radius ─── */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+
+  /* ─── Shadows ─── */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
+
+  /* ─── Fonts ─── */
+  --font-sans: 'Inter', -apple-system, system-ui, sans-serif;
+  --font-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+
+  /* ─── Animations ─── */
+  --animate-float: float 3s ease-in-out infinite;
+  --animate-fade-in: fadeIn 200ms ease;
+  --animate-slide-down: slideDown 200ms ease;
+  --animate-slide-right: slideRight 200ms ease;
+  --animate-spin: spin 0.6s linear infinite;
+  --animate-bounce-dot: bounce 1.4s infinite ease-in-out;
+  --animate-slide-up: slideUp 200ms ease;
+}
+
+/* ─── Theme Variables ─── */
+/* ─── Theme Variables ─── */
+:root {
+  /* LIGHT MODE (Default) */
+  --bg-primary: #ffffff;
+  --bg-secondary: #f9fafb; /* Gray 50 */
+  --bg-tertiary: #f3f4f6;  /* Gray 100 */
+  --bg-hover: #f3f4f6;     /* Gray 100 */
+  --bg-active: #eff6ff;    /* Blue 50 */
+
+  --surface-1: #f3f4f6;    /* Gray 100 */
+  --surface-2: #e5e7eb;    /* Gray 200 */
+  --surface-3: #d1d5db;    /* Gray 300 */
+
+  --text-primary: #111827;   /* Gray 900 */
+  --text-secondary: #4b5563; /* Gray 600 */
+  --text-tertiary: #9ca3af;  /* Gray 400 */
+  --text-muted: #d1d5db;     /* Gray 300 */
+
+  --accent-primary: #2563eb;   /* Blue 600 */
+  --accent-secondary: #3b82f6; /* Blue 500 */
+
+  --border: #e5e7eb;        /* Gray 200 */
+  --border-subtle: #f3f4f6; /* Gray 100 */
+
+  --user-bg: #eff6ff;       /* Blue 50 */
+  --bg-chat-input: #ffffff; /* White in Light Mode */
+
+  /* Font Sizes - Default (Normal) */
+  --font-size-base: 13px;
+  --font-size-sm: 12px;
+  --font-size-xs: 11px;
+  --font-size-xxs: 10px;
+}
+
+:root[data-fontsize="small"] {
+  --font-size-base: 12px;
+  --font-size-sm: 11px;
+  --font-size-xs: 10px;
+  --font-size-xxs: 9px;
+}
+
+:root[data-fontsize="large"] {
+  --font-size-base: 14.5px;
+  --font-size-sm: 13.5px;
+  --font-size-xs: 12.5px;
+  --font-size-xxs: 11px;
+}
+
+:root[data-fontsize="xl"] {
+  --font-size-base: 16px;
+  --font-size-sm: 15px;
+  --font-size-xs: 14px;
+  --font-size-xxs: 12px;
+}
+
+/* DARK MODE */
+.dark {
+  --bg-primary: #202124;    /* Google Dark Background */
+  --bg-secondary: #292a2d;  /* Surface / Card */
+  --bg-tertiary: #35363a;   /* Elevated Surface */
+  --bg-hover: #3c4043;      /* Hover State */
+  --bg-active: #1e3a8a;     /* Blue 900 (Active State) */
+
+  --surface-1: #292a2d;     /* Surface */
+  --surface-2: #3c4043;     /* Border / Divider */
+  --surface-3: #5f6368;     /* Inactive Icon */
+
+  --text-primary: #e8eaed;    /* Google Gray 100 */
+  --text-secondary: #bdc1c6;  /* Google Gray 300 */
+  --text-tertiary: #9aa0a6;   /* Google Gray 500 */
+  --text-muted: #5f6368;      /* Google Gray 700 */
+
+  --accent-primary: #8ab4f8;  /* Google Blue 300 */
+  --accent-secondary: #adccf9;/* Google Blue 200 */
+
+  --border: #3c4043;        /* Google Border */
+  --border-subtle: #303134; 
+
+  --user-bg: #3c4043;       /* Message Bubble Background */
+  --bg-chat-input: #282828; /* Specific Dark Mode Chat Input BG */
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideRight {
+  from { transform: translateX(-100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes bounce {
+  0%, 80%, 100% { transform: scale(0.8); opacity: 0.4; }
+  40% { transform: scale(1.2); opacity: 1; }
+}
+
+/* Base Styles */
+body {
+  @apply bg-bg-primary text-text-primary font-sans leading-[1.55] antialiased transition-colors duration-200;
+  font-size: var(--font-size-base);
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  @apply w-[5px];
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-surface-3 rounded-[3px];
+}
+
+/* Selection */
+::selection {
+  background: var(--accent-primary);
+  color: white;
+  opacity: 0.2;
+}

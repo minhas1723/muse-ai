@@ -1,0 +1,31 @@
+{
+  "name": "muse-ai",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite build --watch",
+    "build": "vite build && node scripts/copy-static.mjs",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@mozilla/readability": "^0.6.0",
+    "@tailwindcss/vite": "^4.1.18",
+    "diff": "^8.0.3",
+    "react": "^19",
+    "react-dom": "^19",
+    "tailwindcss": "^4.1.18",
+    "turndown": "^7.2.2"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.304",
+    "@types/diff": "^7.0.2",
+    "@types/node": "^25.2.3",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@types/turndown": "^5.0.6",
+    "@vitejs/plugin-react": "^4.5.2",
+    "typescript": "^5.8",
+    "vite": "^6.3"
+  }
+}
