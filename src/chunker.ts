@@ -14,7 +14,7 @@ import { diffLines, createTwoFilesPatch } from "diff";
 
 const DEFAULT_CHUNK_SIZE = 2000;
 const DEFAULT_OVERLAP = 200;
-const MAX_CHUNKS = 30;
+const MAX_CHUNKS = 100;
 const TTL_MS = 30 * 60 * 1000; // 30 minutes
 const DIFF_THRESHOLD_RATIO = 0.3; // 30% of lines changed = "too much"
 

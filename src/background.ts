@@ -432,7 +432,7 @@ chrome.runtime.onConnect.addListener((port) => {
         // ─── Execute Tool Call ───
         if (pendingFunctionCall) {
           const { name, args } = pendingFunctionCall;
-          let functionResponse: any;
+          let toolResult: any;
 
           try {
             if (activeTabId === null) {
@@ -443,12 +443,12 @@ chrome.runtime.onConnect.addListener((port) => {
             const indices: number[] = args.indices ?? [];
 
             console.log("🔧 [TOOL INPUT]", { name, source, indices });
-            
+
             // Execute tool
             const chunks = snapshotStore.getChunks(activeTabId, source, indices);
-            
+
             console.log("🔧 [TOOL OUTPUT]", JSON.stringify(chunks, null, 2));
-            
+
             // Send tool call event to UI
             port.postMessage({
               type: "toolCall",
@@ -458,13 +458,13 @@ chrome.runtime.onConnect.addListener((port) => {
               round,
             });
 
-            functionResponse = { chunks };
+            toolResult = { chunks };
 
           } catch (toolError: any) {
             console.error("❌ [TOOL ERROR]", toolError);
-            functionResponse = { 
+            toolResult = {
               error: toolError.message || "Unknown tool error",
-              status: "failed" 
+              status: "failed"
             };
           }
 
@@ -481,7 +481,7 @@ chrome.runtime.onConnect.addListener((port) => {
               {
                 functionResponse: {
                   name,
-                  response: functionResponse,
+                  response: toolResult,
                 },
               },
             ],
