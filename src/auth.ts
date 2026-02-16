@@ -172,7 +172,7 @@ function waitForAuthRedirect(tabId: number, config: ProviderConfig): Promise<str
  *   - Full URL: http://localhost:8085/oauth2callback?code=4/0A...&scope=...
  *   - Just the code: 4/0AfgkS...
  */
-function extractCodeFromUrl(input: string): string | null {
+export function extractCodeFromUrl(input: string): string | null {
   try {
     if (input.includes("?") || input.includes("://")) {
       const url = new URL(input);
