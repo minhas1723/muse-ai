@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite build --watch",
     "build": "vite build && node scripts/copy-static.mjs",
+    "test": "vitest",
     "clean": "rm -rf dist"
   },
   "dependencies": {
@@ -25,7 +26,9 @@
     "@types/react-dom": "^19",
     "@types/turndown": "^5.0.6",
     "@vitejs/plugin-react": "^4.5.2",
+    "jsdom": "^28.1.0",
     "typescript": "^5.8",
-    "vite": "^6.3"
+    "vite": "^6.3",
+    "vitest": "^4.0.18"
   }
 }
