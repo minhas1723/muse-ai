@@ -23,6 +23,34 @@ const DIFF_THRESHOLD_RATIO = 0.3; // 30% of lines changed = "too much"
 // ═══════════════════════════════════════════════════════════
 
 /**
+ * Finds the best split index for a chunk, preferring paragraph or newline boundaries.
+ */
+function findSplitIndex(
+  text: string,
+  start: number,
+  end: number,
+  minChunkSize: number,
+): number {
+  if (end >= text.length) return end;
+
+  const slice = text.slice(start, end);
+
+  // Try to break at a paragraph boundary (double newline)
+  const lastParagraph = slice.lastIndexOf("\n\n");
+  if (lastParagraph > minChunkSize) {
+    return start + lastParagraph + 2;
+  }
+
+  // Try to break at a newline
+  const lastNewline = slice.lastIndexOf("\n");
+  if (lastNewline > minChunkSize) {
+    return start + lastNewline + 1;
+  }
+
+  return end;
+}
+
+/**
  * Split text into character-based chunks with overlap.
  * Tries to break at paragraph/newline boundaries when possible.
  * Caps at MAX_CHUNKS to prevent memory blowup.
@@ -37,25 +65,18 @@ export function splitIntoChunks(
 
   const chunks: string[] = [];
   let start = 0;
+  // Threshold for finding a "good" break point (50% of chunk size)
+  const minChunkSize = chunkSize * 0.5;
 
   while (start < text.length && chunks.length < MAX_CHUNKS) {
-    let end = Math.min(start + chunkSize, text.length);
-
-    // Try to break at a paragraph boundary (double newline)
-    if (end < text.length) {
-      const slice = text.slice(start, end);
-      const lastParagraph = slice.lastIndexOf("\n\n");
-      if (lastParagraph > chunkSize * 0.5) {
-        end = start + lastParagraph + 2;
-      } else {
-        const lastNewline = slice.lastIndexOf("\n");
-        if (lastNewline > chunkSize * 0.5) {
-          end = start + lastNewline + 1;
-        }
-      }
-    }
+    const maxEnd = Math.min(start + chunkSize, text.length);
+    const end = findSplitIndex(text, start, maxEnd, minChunkSize);
 
     chunks.push(text.slice(start, end).trim());
+
+    // Calculate overlap: ensure we advance at least 1 character
+    // The next chunk starts 'overlap' characters before the current one ends.
+    // step = current_chunk_length - overlap
     const step = Math.max(end - start - overlap, 1);
     start += step;
   }
