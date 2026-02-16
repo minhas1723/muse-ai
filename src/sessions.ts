@@ -50,7 +50,7 @@ const sessionSaveMutex = new AsyncMutex();
 /**
  * Generate a title for the session based on the first user message.
  */
-function generateTitle(messages: ChatMessage[]): string {
+export function generateTitle(messages: ChatMessage[]): string {
   const firstUserMsg = messages.find((m) => m.role === "user");
   if (!firstUserMsg) return "New Chat";
 
