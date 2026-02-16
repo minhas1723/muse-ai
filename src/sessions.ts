@@ -1,4 +1,5 @@
 import { ChatMessage } from "./gemini";
+import { encrypt, decrypt } from "./encryption";
 
 export type ChatSession = {
   id: string;
@@ -103,7 +104,8 @@ export async function saveSession(session: ChatSession): Promise<void> {
     try {
       // 1. Save full session data
       const key = `${STORAGE_KEYS.SESSION_PREFIX}${session.id}`;
-      await chrome.storage.local.set({ [key]: session });
+      const encrypted = await encrypt(session);
+      await chrome.storage.local.set({ [key]: encrypted });
 
       // 2. Update index
       // Re-fetch index to ensure it's fresh
@@ -144,7 +146,22 @@ export async function saveSession(session: ChatSession): Promise<void> {
 export async function loadSession(id: string): Promise<ChatSession | null> {
   const key = `${STORAGE_KEYS.SESSION_PREFIX}${id}`;
   const result = await chrome.storage.local.get(key);
-  return result[key] || null;
+  const data = result[key];
+
+  if (!data) return null;
+
+  // Check if encrypted (has iv and data properties)
+  if (data.iv && data.data) {
+    try {
+      return await decrypt(data);
+    } catch (e) {
+      console.error("Failed to decrypt session:", e);
+      return null;
+    }
+  }
+
+  // Legacy format (plain ChatSession)
+  return data as ChatSession;
 }
 
 /**
