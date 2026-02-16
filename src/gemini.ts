@@ -29,6 +29,39 @@ export type ChatMessage = {
   parts: Array<{ text?: string; functionCall?: any; functionResponse?: any }>;
 };
 
+export type GeminiCandidatePart = {
+  text?: string;
+  thought?: boolean;
+  functionCall?: {
+    name: string;
+    args: Record<string, any>;
+  };
+  [key: string]: any;
+};
+
+export type GeminiCandidate = {
+  content?: {
+    parts?: GeminiCandidatePart[];
+  };
+  finishReason?: string;
+};
+
+export type GeminiUsageMetadata = {
+  promptTokenCount?: number;
+  candidatesTokenCount?: number;
+  thoughtsTokenCount?: number;
+  totalTokenCount?: number;
+};
+
+export type GeminiResponseData = {
+  candidates?: GeminiCandidate[];
+  usageMetadata?: GeminiUsageMetadata;
+};
+
+export type GeminiResponse = {
+  response?: GeminiResponseData;
+};
+
 export type StreamChunk = {
   text?: string;
   thinking?: string;
@@ -36,7 +69,7 @@ export type StreamChunk = {
   usage?: { input: number; output: number; total: number };
   error?: string;
   functionCall?: { name: string; args: Record<string, any> };
-  rawPart?: any; // Preserve full part (incl. thoughtSignature) for conversation replay
+  rawPart?: GeminiCandidatePart; // Preserve full part (incl. thoughtSignature) for conversation replay
 };
 
 // ═══════════════════════════════════════════════════════════
@@ -253,9 +286,9 @@ export async function* streamGeminiChat(params: {
         const jsonStr = line.slice(5).trim();
         if (!jsonStr) continue;
 
-        let chunk: any;
+        let chunk: GeminiResponse;
         try {
-          chunk = JSON.parse(jsonStr);
+          chunk = JSON.parse(jsonStr) as GeminiResponse;
         } catch {
           continue;
         }
