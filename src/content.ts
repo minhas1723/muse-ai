@@ -14,8 +14,37 @@ const MAX_CONTENT_LENGTH = 12000;
 function extractEditorContent(): { label: string; code: string }[] {
   const editors: { label: string; code: string }[] = [];
 
+  const monacoEls: Element[] = [];
+  const cm5Els: Element[] = [];
+  const cm6Els: Element[] = [];
+  const aceEls: Element[] = [];
+  const editables: Element[] = [];
+
+  // Optimized: Single query for all potential editors to reduce DOM traversals
+  const selector =
+    ".monaco-editor, .CodeMirror, .cm-editor, .ace_editor, [contenteditable='true']";
+  const elements = document.querySelectorAll(selector);
+
+  // Categorize elements
+  for (const el of elements) {
+    if (el.classList.contains("monaco-editor")) {
+      monacoEls.push(el);
+    } else if (el.classList.contains("CodeMirror")) {
+      cm5Els.push(el);
+    } else if (el.classList.contains("cm-editor")) {
+      cm6Els.push(el);
+    } else if (el.classList.contains("ace_editor")) {
+      aceEls.push(el);
+    } else {
+      // It must be a generic contenteditable because of the selector.
+      // Filter out those inside known editors.
+      if (!el.closest(".monaco-editor, .CodeMirror, .cm-editor, .ace_editor")) {
+        editables.push(el);
+      }
+    }
+  }
+
   // ─── Monaco Editor (VS Code, LeetCode, etc.) ───
-  const monacoEls = document.querySelectorAll(".monaco-editor");
   monacoEls.forEach((el, i) => {
     // Monaco keeps a hidden textarea with the full content for accessibility
     const textarea = el.querySelector("textarea") as HTMLTextAreaElement | null;
@@ -37,7 +66,6 @@ function extractEditorContent(): { label: string; code: string }[] {
   });
 
   // ─── CodeMirror 5 (.CodeMirror wrapper) ───
-  const cm5Els = document.querySelectorAll(".CodeMirror");
   cm5Els.forEach((el: any, i) => {
     // CodeMirror 5 stores the instance on the DOM element
     const value = el.CodeMirror?.getValue?.();
@@ -50,7 +78,6 @@ function extractEditorContent(): { label: string; code: string }[] {
   });
 
   // ─── CodeMirror 6 (.cm-editor wrapper) ───
-  const cm6Els = document.querySelectorAll(".cm-editor");
   cm6Els.forEach((el, i) => {
     const content = el.querySelector(".cm-content");
     if (content?.textContent?.trim()) {
@@ -62,7 +89,6 @@ function extractEditorContent(): { label: string; code: string }[] {
   });
 
   // ─── Ace Editor ───
-  const aceEls = document.querySelectorAll(".ace_editor");
   aceEls.forEach((el, i) => {
     // Ace stores content in .ace_text-layer or via the ace.edit API
     const textLayer = el.querySelector(".ace_text-layer");
@@ -75,9 +101,6 @@ function extractEditorContent(): { label: string; code: string }[] {
   });
 
   // ─── Generic contenteditable blocks (not inside known editors) ───
-  const editables = document.querySelectorAll(
-    '[contenteditable="true"]:not(.monaco-editor *):not(.CodeMirror *):not(.cm-editor *):not(.ace_editor *)',
-  );
   editables.forEach((el, i) => {
     const text = el.textContent?.trim();
     if (text && text.length > 20) {
