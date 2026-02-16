@@ -12,8 +12,13 @@
     "@mozilla/readability": "^0.6.0",
     "@tailwindcss/vite": "^4.1.18",
     "diff": "^8.0.3",
+    "katex": "^0.16.28",
     "react": "^19",
     "react-dom": "^19",
+    "react-markdown": "^10.1.0",
+    "rehype-katex": "^7.0.1",
+    "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
     "tailwindcss": "^4.1.18",
     "turndown": "^7.2.2"
   },
