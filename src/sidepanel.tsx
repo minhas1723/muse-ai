@@ -36,7 +36,7 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 // APP COMPONENT
 // ═══════════════════════════════════════════════════════════
 
-function App() {
+export function App() {
   const [auth, setAuth] = useState<AuthStatus | null>(null);
   
   // Chat State
@@ -238,33 +238,48 @@ function App() {
       }).catch(() => {});
     };
 
+    // Buffer for text chunks to throttle re-renders
+    let textBuffer = "";
+    let thinkingBuffer = "";
+    let rafId: number | null = null;
+
+    const flush = () => {
+      if (!textBuffer && !thinkingBuffer) {
+        rafId = requestAnimationFrame(flush);
+        return;
+      }
+
+      const currentText = textBuffer;
+      const currentThinking = thinkingBuffer;
+      textBuffer = "";
+      thinkingBuffer = "";
+
+      setMessages((prev) => {
+        const updated = [...prev];
+        const last = updated[assistantIdx];
+        if (last) {
+          updated[assistantIdx] = {
+            ...last,
+            content: last.content + currentText,
+            thinking: (last.thinking ?? "") + currentThinking,
+          };
+        }
+        return updated;
+      });
+
+      rafId = requestAnimationFrame(flush);
+    };
+
+    // Start flushing loop
+    rafId = requestAnimationFrame(flush);
+
     port.onMessage.addListener((msg: any) => {
       if (msg.type === "chunk") {
         if (msg.text) {
-          setMessages((prev) => {
-            const updated = [...prev];
-            const last = updated[assistantIdx];
-            if (last) {
-              updated[assistantIdx] = {
-                ...last,
-                content: last.content + msg.text,
-              };
-            }
-            return updated;
-          });
+          textBuffer += msg.text;
         }
         if (msg.thinking) {
-          setMessages((prev) => {
-            const updated = [...prev];
-            const last = updated[assistantIdx];
-            if (last) {
-              updated[assistantIdx] = {
-                ...last,
-                thinking: (last.thinking ?? "") + msg.thinking,
-              };
-            }
-            return updated;
-          });
+          thinkingBuffer += msg.thinking;
         }
         if (msg.usage) {
           setMessages((prev) => {
@@ -322,11 +337,27 @@ function App() {
       }
       if (msg.type === "done") {
         setIsStreaming(false);
+        if (rafId) cancelAnimationFrame(rafId);
         port.disconnect();
-        // Final save
-        setMessages((current) => {
-          saveProgress(current);
-          return current;
+
+        // Final flush and save
+        setMessages((prev) => {
+          // Flush any remaining buffer
+          let updated = [...prev];
+          if (textBuffer || thinkingBuffer) {
+            const last = updated[assistantIdx];
+            if (last) {
+              updated[assistantIdx] = {
+                ...last,
+                content: last.content + textBuffer,
+                thinking: (last.thinking ?? "") + thinkingBuffer,
+              };
+            }
+            textBuffer = "";
+            thinkingBuffer = "";
+          }
+          saveProgress(updated);
+          return updated;
         });
       }
     });
@@ -456,5 +487,8 @@ function App() {
   );
 }
 
-const root = createRoot(document.getElementById("root")!);
-root.render(<App />);
+const rootEl = document.getElementById("root");
+if (rootEl) {
+  const root = createRoot(rootEl);
+  root.render(<App />);
+}
