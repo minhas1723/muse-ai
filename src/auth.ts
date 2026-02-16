@@ -18,6 +18,7 @@ import {
   GEMINI_CLI_PROVIDER,
   DEFAULT_PROJECT_ID,
 } from "./providers";
+import { exchangeCodeForTokens, refreshAccessToken } from "./oauth-client";
 
 // ═══════════════════════════════════════════════════════════
 // UTILS
@@ -350,65 +351,6 @@ export async function ensureValidToken(): Promise<string> {
 // ═══════════════════════════════════════════════════════════
 // TOKEN EXCHANGE HELPERS
 // ═══════════════════════════════════════════════════════════
-
-async function exchangeCodeForTokens(
-  code: string,
-  clientId: string,
-  clientSecret: string,
-  redirectUri: string
-) {
-  const params = new URLSearchParams({
-    client_id: clientId,
-    client_secret: clientSecret,
-    code: code,
-    grant_type: "authorization_code",
-    redirect_uri: redirectUri,
-  });
-
-  const res = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: params.toString(),
-  });
-
-  const data = await res.json();
-  if (!res.ok)
-    throw new Error(data.error_description || "Token exchange failed");
-
-  return {
-    accessToken: data.access_token,
-    refreshToken: data.refresh_token,
-    expiresIn: data.expires_in,
-  };
-}
-
-async function refreshAccessToken(
-  refreshToken: string,
-  clientId: string,
-  clientSecret: string
-) {
-  const params = new URLSearchParams({
-    client_id: clientId,
-    client_secret: clientSecret,
-    refresh_token: refreshToken,
-    grant_type: "refresh_token",
-  });
-
-  const res = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: params.toString(),
-  });
-
-  const data = await res.json();
-  if (!res.ok)
-    throw new Error(data.error_description || "Token refresh failed");
-
-  return {
-    accessToken: data.access_token,
-    expiresIn: data.expires_in,
-  };
-}
 
 async function fetchUserEmail(
   accessToken: string
