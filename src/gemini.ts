@@ -73,82 +73,79 @@ export const PAGE_CONTENT_TOOLS = [
 ];
 
 // ═══════════════════════════════════════════════════════════
-// STREAMING INFERENCE
+// HELPER FUNCTIONS
 // ═══════════════════════════════════════════════════════════
 
-/**
- * Call Gemini via Cloud Code Assist — streaming SSE.
- * Yields chunks as they arrive.
- * Uses provider-specific headers and endpoints.
- */
-export async function* streamGeminiChat(params: {
-  accessToken: string;
+// Helper: Build Request Body
+function buildRequestBody(params: {
   projectId: string;
-  prompt?: string;
-  history?: ChatMessage[];
-  messages?: ChatMessage[];    // pre-built conversation (used by agentic loop)
-  model?: string;
+  modelId: string;
+  messages: ChatMessage[];
   systemPrompt?: string;
   tools?: any[];
   maxOutputTokens?: number;
   temperature?: number;
-  provider?: AuthProvider;
-}): AsyncGenerator<StreamChunk> {
-  const providerId = params.provider ?? "antigravity";
-  const config = getProvider(providerId);
-  const modelId = params.model ?? "gemini-2.5-flash";
-
-  // Build conversation: use explicit messages OR prompt+history
-  const messages: ChatMessage[] = params.messages
-    ? params.messages
-    : [
-        ...(params.history ?? []),
-        ...(params.prompt ? [{ role: "user" as const, parts: [{ text: params.prompt }] }] : []),
-      ];
-
-  const isAntigravity = providerId === "antigravity";
+  providerConfig: any;
+  isAntigravity: boolean;
+}): Record<string, unknown> {
+  const {
+    projectId,
+    modelId,
+    messages,
+    systemPrompt,
+    tools,
+    maxOutputTokens,
+    temperature,
+    providerConfig,
+    isAntigravity,
+  } = params;
 
   // Build system instruction
   let systemInstruction: Record<string, unknown> | undefined;
-  if (params.systemPrompt) {
+  if (systemPrompt) {
     systemInstruction = {
-      parts: [{ text: params.systemPrompt }],
+      parts: [{ text: systemPrompt }],
     };
   }
 
-  const requestBody: Record<string, unknown> = {
-    project: params.projectId,
+  return {
+    project: projectId,
     model: modelId,
     request: {
       contents: messages,
       ...(systemInstruction && { systemInstruction }),
-      ...(params.tools && { tools: params.tools }),
+      ...(tools && { tools: tools }),
       generationConfig: {
-        ...(params.maxOutputTokens && {
-          maxOutputTokens: params.maxOutputTokens,
-        }),
-        ...(params.temperature !== undefined && {
-          temperature: params.temperature,
-        }),
+        ...(maxOutputTokens && { maxOutputTokens }),
+        ...(temperature !== undefined && { temperature }),
       },
     },
-    userAgent: config.userAgent,
-    ...(config.requestType ? { requestType: config.requestType } : {}),
+    userAgent: providerConfig.userAgent,
+    ...(providerConfig.requestType ? { requestType: providerConfig.requestType } : {}),
     requestId: `${isAntigravity ? "agent" : "pi"}-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
   };
+}
 
-  // Try endpoints with fallback
+// Helper: Execute Request (Fetch with Retries)
+async function executeRequest(params: {
+  accessToken: string;
+  projectId: string;
+  modelId: string;
+  providerConfig: any;
+  requestBody: Record<string, unknown>;
+}): Promise<{ response?: Response; error?: Error }> {
+  const { accessToken, projectId, modelId, providerConfig, requestBody } = params;
   let response: Response | undefined;
   let lastError: Error | undefined;
 
-  for (const endpoint of config.endpoints) {
+  for (const endpoint of providerConfig.endpoints) {
     const url = `${endpoint}/v1internal:streamGenerateContent?alt=sse`;
 
     // 🔍 DEBUG: Log basic request details (endpoint + model)
     console.log("🔍 [STREAM REQUEST]", {
       url,
       model: modelId,
-      project: params.projectId,
+      project: projectId,
       isClaudeThinking: isClaudeThinkingModel(modelId),
     });
 
@@ -161,10 +158,10 @@ export async function* streamGeminiChat(params: {
         response = await fetch(url, {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${params.accessToken}`,
+            Authorization: `Bearer ${accessToken}`,
             "Content-Type": "application/json",
             Accept: "text/event-stream",
-            ...config.headers,
+            ...providerConfig.headers,
             ...(isClaudeThinkingModel(modelId) ? { "anthropic-beta": CLAUDE_THINKING_BETA_HEADER } : {}),
           },
           body: JSON.stringify(requestBody),
@@ -184,7 +181,7 @@ export async function* streamGeminiChat(params: {
           if (match && match[1]) {
             waitSeconds = parseInt(match[1], 10);
             // Add a buffer
-            waitSeconds += 1; 
+            waitSeconds += 1;
           }
 
           if (waitSeconds <= 20) {
@@ -214,7 +211,7 @@ export async function* streamGeminiChat(params: {
         }
         
         // Non-retriable error (400, 401, 403, 404, etc)
-        break; 
+        break;
 
       } catch (err) {
         lastError = err instanceof Error ? err : new Error(String(err));
@@ -227,14 +224,14 @@ export async function* streamGeminiChat(params: {
   }
 
   if (!response || !response.ok) {
-    yield {
-      error:
-        lastError?.message ?? "Failed to connect to Cloud Code Assist API",
-    };
-    return;
+    return { error: lastError ?? new Error("Failed to connect to Cloud Code Assist API") };
   }
 
-  // Read SSE stream
+  return { response };
+}
+
+// Helper: Parse Stream
+async function* parseStream(response: Response): AsyncGenerator<StreamChunk> {
   const reader = response.body!.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
@@ -304,6 +301,70 @@ export async function* streamGeminiChat(params: {
   } finally {
     reader.releaseLock();
   }
+}
+
+// ═══════════════════════════════════════════════════════════
+// STREAMING INFERENCE
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * Call Gemini via Cloud Code Assist — streaming SSE.
+ * Yields chunks as they arrive.
+ * Uses provider-specific headers and endpoints.
+ */
+export async function* streamGeminiChat(params: {
+  accessToken: string;
+  projectId: string;
+  prompt?: string;
+  history?: ChatMessage[];
+  messages?: ChatMessage[];    // pre-built conversation (used by agentic loop)
+  model?: string;
+  systemPrompt?: string;
+  tools?: any[];
+  maxOutputTokens?: number;
+  temperature?: number;
+  provider?: AuthProvider;
+}): AsyncGenerator<StreamChunk> {
+  const providerId = params.provider ?? "antigravity";
+  const config = getProvider(providerId);
+  const modelId = params.model ?? "gemini-2.5-flash";
+
+  // Build conversation: use explicit messages OR prompt+history
+  const messages: ChatMessage[] = params.messages
+    ? params.messages
+    : [
+        ...(params.history ?? []),
+        ...(params.prompt ? [{ role: "user" as const, parts: [{ text: params.prompt }] }] : []),
+      ];
+
+  const isAntigravity = providerId === "antigravity";
+
+  const requestBody = buildRequestBody({
+    projectId: params.projectId,
+    modelId,
+    messages,
+    systemPrompt: params.systemPrompt,
+    tools: params.tools,
+    maxOutputTokens: params.maxOutputTokens,
+    temperature: params.temperature,
+    providerConfig: config,
+    isAntigravity,
+  });
+
+  const { response, error } = await executeRequest({
+    accessToken: params.accessToken,
+    projectId: params.projectId,
+    modelId,
+    providerConfig: config,
+    requestBody,
+  });
+
+  if (error || !response) {
+    yield { error: error?.message ?? "Unknown error" };
+    return;
+  }
+
+  yield* parseStream(response);
 }
 
 /**
