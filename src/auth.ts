@@ -441,33 +441,36 @@ async function fetchProjectId(
     }),
   };
 
-  for (const endpoint of endpoints) {
-    try {
-      const res = await fetch(`${endpoint}/v1internal:loadCodeAssist`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          metadata: {
-            ideType: "IDE_UNSPECIFIED",
-            platform: "PLATFORM_UNSPECIFIED",
-            pluginType: "GEMINI",
-          },
-        }),
-      });
+  try {
+    return await Promise.any(
+      endpoints.map(async (endpoint) => {
+        const res = await fetch(`${endpoint}/v1internal:loadCodeAssist`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            metadata: {
+              ideType: "IDE_UNSPECIFIED",
+              platform: "PLATFORM_UNSPECIFIED",
+              pluginType: "GEMINI",
+            },
+          }),
+        });
 
-      if (!res.ok) continue;
+        if (!res.ok) {
+          throw new Error("Request failed");
+        }
 
-      const data = await res.json();
-      if (typeof data.cloudaicompanionProject === "string") {
-        return data.cloudaicompanionProject;
-      }
-      if (data.cloudaicompanionProject?.id) {
-        return data.cloudaicompanionProject.id;
-      }
-    } catch {
-      // try next endpoint
-    }
+        const data = await res.json();
+        if (typeof data.cloudaicompanionProject === "string") {
+          return data.cloudaicompanionProject;
+        }
+        if (data.cloudaicompanionProject?.id) {
+          return data.cloudaicompanionProject.id;
+        }
+        throw new Error("Invalid response format");
+      })
+    );
+  } catch {
+    return DEFAULT_PROJECT_ID;
   }
-
-  return DEFAULT_PROJECT_ID;
 }
