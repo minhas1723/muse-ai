@@ -7,88 +7,145 @@ const MAX_CONTENT_LENGTH = 12000;
 // EDITOR EXTRACTION — Monaco, CodeMirror, contenteditable
 // ═══════════════════════════════════════════════════════════
 
-/**
- * Try to extract code from known editor types.
- * Returns { language, code } or null if no editor found.
- */
-function extractEditorContent(): { label: string; code: string }[] {
-  const editors: { label: string; code: string }[] = [];
+interface EditorContent {
+  label: string;
+  code: string;
+}
 
-  // ─── Monaco Editor (VS Code, LeetCode, etc.) ───
+/**
+ * Extracts content from Monaco Editors (VS Code, LeetCode, etc.)
+ */
+function extractMonacoContent(): EditorContent[] {
+  const editors: EditorContent[] = [];
   const monacoEls = document.querySelectorAll(".monaco-editor");
+
   monacoEls.forEach((el, i) => {
+    const label = `Monaco Editor${monacoEls.length > 1 ? ` #${i + 1}` : ""}`;
+
     // Monaco keeps a hidden textarea with the full content for accessibility
     const textarea = el.querySelector("textarea") as HTMLTextAreaElement | null;
     if (textarea?.value?.trim()) {
       editors.push({
-        label: `Monaco Editor${monacoEls.length > 1 ? ` #${i + 1}` : ""}`,
+        label,
         code: textarea.value,
       });
       return;
     }
+
     // Fallback: read from .view-lines
     const viewLines = el.querySelector(".view-lines");
     if (viewLines?.textContent?.trim()) {
       editors.push({
-        label: `Monaco Editor${monacoEls.length > 1 ? ` #${i + 1}` : ""}`,
+        label,
         code: viewLines.textContent,
       });
     }
   });
 
-  // ─── CodeMirror 5 (.CodeMirror wrapper) ───
+  return editors;
+}
+
+/**
+ * Extracts content from CodeMirror 5 editors (.CodeMirror wrapper)
+ */
+function extractCodeMirror5Content(): EditorContent[] {
+  const editors: EditorContent[] = [];
   const cm5Els = document.querySelectorAll(".CodeMirror");
+
   cm5Els.forEach((el: any, i) => {
+    const label = `CodeMirror${cm5Els.length > 1 ? ` #${i + 1}` : ""}`;
+
     // CodeMirror 5 stores the instance on the DOM element
     const value = el.CodeMirror?.getValue?.();
     if (value?.trim()) {
       editors.push({
-        label: `CodeMirror${cm5Els.length > 1 ? ` #${i + 1}` : ""}`,
+        label,
         code: value,
       });
     }
   });
 
-  // ─── CodeMirror 6 (.cm-editor wrapper) ───
+  return editors;
+}
+
+/**
+ * Extracts content from CodeMirror 6 editors (.cm-editor wrapper)
+ */
+function extractCodeMirror6Content(): EditorContent[] {
+  const editors: EditorContent[] = [];
   const cm6Els = document.querySelectorAll(".cm-editor");
+
   cm6Els.forEach((el, i) => {
+    const label = `CodeMirror${cm6Els.length > 1 ? ` #${i + 1}` : ""}`;
     const content = el.querySelector(".cm-content");
     if (content?.textContent?.trim()) {
       editors.push({
-        label: `CodeMirror${cm6Els.length > 1 ? ` #${i + 1}` : ""}`,
+        label,
         code: content.textContent,
       });
     }
   });
 
-  // ─── Ace Editor ───
+  return editors;
+}
+
+/**
+ * Extracts content from Ace Editors
+ */
+function extractAceContent(): EditorContent[] {
+  const editors: EditorContent[] = [];
   const aceEls = document.querySelectorAll(".ace_editor");
+
   aceEls.forEach((el, i) => {
+    const label = `Ace Editor${aceEls.length > 1 ? ` #${i + 1}` : ""}`;
     // Ace stores content in .ace_text-layer or via the ace.edit API
     const textLayer = el.querySelector(".ace_text-layer");
     if (textLayer?.textContent?.trim()) {
       editors.push({
-        label: `Ace Editor${aceEls.length > 1 ? ` #${i + 1}` : ""}`,
+        label,
         code: textLayer.textContent,
       });
     }
   });
 
-  // ─── Generic contenteditable blocks (not inside known editors) ───
+  return editors;
+}
+
+/**
+ * Extracts content from generic contenteditable blocks (not inside known editors)
+ */
+function extractGenericEditableContent(): EditorContent[] {
+  const editors: EditorContent[] = [];
   const editables = document.querySelectorAll(
     '[contenteditable="true"]:not(.monaco-editor *):not(.CodeMirror *):not(.cm-editor *):not(.ace_editor *)',
   );
+
   editables.forEach((el, i) => {
+    const label = `Editable Block${editables.length > 1 ? ` #${i + 1}` : ""}`;
     const text = el.textContent?.trim();
     if (text && text.length > 20) {
       editors.push({
-        label: `Editable Block${editables.length > 1 ? ` #${i + 1}` : ""}`,
+        label,
         code: text,
       });
     }
   });
 
   return editors;
+}
+
+/**
+ * Try to extract code from known editor types.
+ * Returns { language, code } or null if no editor found.
+ */
+function extractEditorContent(): EditorContent[] {
+  return [
+    ...extractMonacoContent(),
+    ...extractCodeMirror5Content(),
+    ...extractCodeMirror6Content(),
+    ...extractAceContent(),
+    ...extractGenericEditableContent(),
+  ];
 }
 
 // ═══════════════════════════════════════════════════════════
