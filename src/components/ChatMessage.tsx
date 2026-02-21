@@ -1,16 +1,57 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import type { Message } from "../types";
 import { renderMarkdown } from "./MarkdownRenderer";
+import { ThinkingBlock } from "./ThinkingBlock";
+
+// ─── Slot Machine Text Animation ───
+function SlotText({ items, isAnimating }: { items: string[]; isAnimating: boolean }) {
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [animKey, setAnimKey] = useState(0);
+
+  useEffect(() => {
+    if (!isAnimating || items.length <= 1) return;
+
+    const interval = setInterval(() => {
+      setCurrentIndex(prev => (prev + 1) % items.length);
+      setAnimKey(prev => prev + 1);
+    }, 700);
+
+    return () => clearInterval(interval);
+  }, [isAnimating, items.length]);
+
+  if (items.length === 0) return null;
+
+  // Static: show all items
+  if (!isAnimating) {
+    return <span className="font-mono opacity-70">{items.join(", ")}</span>;
+  }
+
+  // Animating: single item rolling through
+  return (
+    <span
+      className="inline-flex overflow-hidden font-mono opacity-70"
+      style={{ height: "1.3em", verticalAlign: "middle", minWidth: "3em" }}
+    >
+      <span key={animKey} className="slot-roll-in">
+        {items[currentIndex]}
+      </span>
+    </span>
+  );
+}
 
 interface ChatMessageProps {
   message: Message;
   isLast: boolean;
   model: string;
+  isStreaming: boolean;
 }
 
-export function ChatMessage({ message, isLast, model }: ChatMessageProps) {
+export function ChatMessage({ message, isLast, model, isStreaming }: ChatMessageProps) {
   const isUser = message.role === "user";
   const [copied, setCopied] = useState(false);
+
+  // Tool animations run until the LLM starts producing text
+  const toolsAnimating = isLast && isStreaming && !message.content;
 
   const handleCopy = () => {
     navigator.clipboard.writeText(message.content).then(() => {
@@ -28,69 +69,71 @@ export function ChatMessage({ message, isLast, model }: ChatMessageProps) {
       <div className={`${isUser ? "max-w-[85%]" : "w-full"}`}>
         {/* Thinking — only for assistant, shown above content */}
         {!isUser && message.thinking && (
-          <div className="mb-1.5 w-full text-xs">
-            <details>
-              <summary className="cursor-pointer text-text-tertiary text-[length:var(--font-size-xs)] py-1 select-none flex items-center gap-1 hover:text-text-primary transition-colors">
-                <span className="opacity-70">Thinking Process</span>
-              </summary>
-              <div className="mt-1 p-2.5 bg-surface-1 rounded-lg text-[length:var(--font-size-xs)] text-text-secondary whitespace-pre-wrap font-mono max-h-[200px] overflow-y-auto border border-border">
-                {renderMarkdown(message.thinking)}
-              </div>
-            </details>
-          </div>
+          <ThinkingBlock
+            thinking={message.thinking}
+            isStreaming={isStreaming}
+            isLast={isLast}
+            hasAnswer={message.content.length > 0}
+          />
         )}
 
-        {/* Tool calls — only for assistant, shown above content */}
+        {/* Tool calls — subtle inline indicators above content */}
         {!isUser && message.toolCalls && message.toolCalls.length > 0 && (
-          <div className="mb-1.5 flex flex-col gap-1.5">
+          <div className="mb-1 flex flex-col gap-0.5">
             {message.toolCalls.map((tc, i) => {
+              const isRead = tc.name === "read_editable_content";
+              const isWrite = tc.name === "write_editable_content";
+              const isEditorTool = isRead || isWrite;
               const source = tc.source ?? "latest";
               const round = tc.round ?? 0;
-              const indices = tc.args?.indices ?? [];
-              const sectionLabel = indices.length === 1
-                ? `section ${indices[0]}`
-                : `sections ${indices.join(", ")}`;
+
+              // Build list of items to animate
+              let items: string[] = [];
+              if (isRead) {
+                items = tc.args?.keys
+                  ? tc.args.keys
+                  : tc.args?.key
+                    ? [tc.args.key]
+                    : [];
+              } else if (isWrite) {
+                items = tc.args?.key ? [tc.args.key] : [];
+              } else {
+                const indices: number[] = tc.args?.indices ?? [];
+                items = indices.map((idx: number) => `section ${idx}`);
+              }
 
               let label: string;
-              let icon: React.ReactNode;
-
-              if (source === "previous") {
+              let icon: string;
+              if (isWrite) {
+                label = "Editing editor";
+                icon = "✏";
+              } else if (isRead) {
+                label = "Reading editor";
+                icon = "✎";
+              } else if (source === "previous") {
                 label = "Reviewing previous state";
-                icon = (
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="12" cy="12" r="10" />
-                    <polyline points="12 6 12 12 8 14" />
-                  </svg>
-                );
+                icon = "◷";
               } else if (round > 0) {
                 label = "Re-reading page";
-                icon = (
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                    <polyline points="14 2 14 8 20 8" />
-                    <line x1="16" y1="13" x2="8" y2="13" />
-                    <line x1="16" y1="17" x2="8" y2="17" />
-                  </svg>
-                );
+                icon = "⊙";
               } else {
                 label = "Scanning page";
-                icon = (
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                    <circle cx="12" cy="12" r="3" />
-                  </svg>
-                );
+                icon = "⊙";
               }
 
               return (
                 <div
                   key={i}
-                  className="inline-flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-surface-1 border border-border text-[length:var(--font-size-xs)] w-fit transition-colors"
+                  className="flex items-center gap-1.5 py-0.5 text-[length:var(--font-size-xs)] text-text-tertiary"
                 >
-                  <span className="text-accent-primary">{icon}</span>
-                  <span className="font-medium text-text-secondary">{label}</span>
-                  <span className="text-text-tertiary">·</span>
-                  <span className="text-text-tertiary font-mono">{sectionLabel}</span>
+                  <span className="opacity-60">{icon}</span>
+                  <span className="italic">{label}</span>
+                  {toolsAnimating && items.length > 0 && (
+                    <>
+                      <span className="opacity-40">—</span>
+                      <SlotText items={items} isAnimating={toolsAnimating} />
+                    </>
+                  )}
                 </div>
               );
             })}

@@ -108,6 +108,7 @@ export type Snapshot = {
   chunks: string[];
   hash: string;
   updatedAt: number;
+  editorContents?: Record<string, { label: string; code: string }>;
 };
 
 export type DiffResult =
@@ -127,17 +128,54 @@ type TabEntry = {
 };
 
 class SnapshotStoreImpl {
+  // In-memory cache to avoid constant storage reads
   private tabs = new Map<number, TabEntry>();
+
+  /**
+   * Load tab state from storage (or use cache).
+   */
+  private async loadTab(tabId: number): Promise<TabEntry | null> {
+    if (this.tabs.has(tabId)) {
+      return this.tabs.get(tabId)!;
+    }
+
+    try {
+      const key = `snapshot_${tabId}`;
+      const result = await chrome.storage.local.get(key);
+      const entry = result[key] as TabEntry | undefined;
+      
+      if (entry) {
+        this.tabs.set(tabId, entry);
+        return entry;
+      }
+    } catch (err) {
+      console.error("Failed to load snapshot from storage", err);
+    }
+    return null;
+  }
+
+  /**
+   * Save tab state to storage (and update cache).
+   */
+  private async saveTab(tabId: number, entry: TabEntry): Promise<void> {
+    this.tabs.set(tabId, entry);
+    try {
+      const key = `snapshot_${tabId}`;
+      await chrome.storage.local.set({ [key]: entry });
+    } catch (err) {
+      console.error("Failed to save snapshot to storage", err);
+    }
+  }
 
   /**
    * Push new content for a tab.
    * Moves current `latest` → `previous`, stores new content as `latest`.
    * Returns the diff result between old latest and new content.
    */
-  push(
+  async push(
     tabId: number,
-    content: { url: string; title: string; markdown: string },
-  ): { snapshot: Snapshot; diff: DiffResult } {
+    content: { url: string; title: string; markdown: string; editorContents?: Record<string, { label: string; code: string }> },
+  ): Promise<{ snapshot: Snapshot; diff: DiffResult }> {
     const newHash = hashContent(content.markdown);
     const newChunks = splitIntoChunks(content.markdown);
     const newSnapshot: Snapshot = {
@@ -147,13 +185,15 @@ class SnapshotStoreImpl {
       chunks: newChunks,
       hash: newHash,
       updatedAt: Date.now(),
+      editorContents: content.editorContents,
     };
 
-    const existing = this.tabs.get(tabId);
+    const existing = await this.loadTab(tabId);
 
     // First time for this tab
     if (!existing) {
-      this.tabs.set(tabId, { latest: newSnapshot, previous: null });
+      const entry = { latest: newSnapshot, previous: null };
+      await this.saveTab(tabId, entry);
       return { snapshot: newSnapshot, diff: { type: "no_previous" } };
     }
 
@@ -161,12 +201,14 @@ class SnapshotStoreImpl {
 
     // Check if stale (TTL expired) — treat as fresh start
     if (Date.now() - oldLatest.updatedAt > TTL_MS) {
-      this.tabs.set(tabId, { latest: newSnapshot, previous: null });
+      const entry = { latest: newSnapshot, previous: null };
+      await this.saveTab(tabId, entry);
       return { snapshot: newSnapshot, diff: { type: "no_previous" } };
     }
 
     // Slide: latest → previous, new → latest
-    this.tabs.set(tabId, { latest: newSnapshot, previous: oldLatest });
+    const newEntry = { latest: newSnapshot, previous: oldLatest };
+    await this.saveTab(tabId, newEntry);
 
     // URL changed — different page entirely
     if (oldLatest.url !== content.url) {
@@ -189,12 +231,12 @@ class SnapshotStoreImpl {
   }
 
   /** Get chunks from a specific source for a tab. */
-  getChunks(
+  async getChunks(
     tabId: number,
     source: "latest" | "previous",
     indices: number[],
-  ): { index: number; content: string }[] {
-    const entry = this.tabs.get(tabId);
+  ): Promise<{ index: number; content: string }[]> {
+    const entry = await this.loadTab(tabId);
     if (!entry) return [];
 
     const snapshot = source === "latest" ? entry.latest : entry.previous;
@@ -205,12 +247,27 @@ class SnapshotStoreImpl {
       .map((i) => ({ index: i, content: snapshot.chunks[i] }));
   }
 
+  /** Get specific extracted editor/input content by key. */
+  async getEditorContent(
+    tabId: number,
+    source: "latest" | "previous",
+    key: string,
+  ): Promise<string | null> {
+    const entry = await this.loadTab(tabId);
+    if (!entry) return null;
+
+    const snapshot = source === "latest" ? entry.latest : entry.previous;
+    if (!snapshot || !snapshot.editorContents) return null;
+
+    return snapshot.editorContents[key]?.code || null;
+  }
+
   /** Get metadata for a tab's snapshots. */
-  getMeta(tabId: number): {
+  async getMeta(tabId: number): Promise<{
     latest: { url: string; title: string; totalChunks: number } | null;
     previous: { url: string; title: string; totalChunks: number } | null;
-  } {
-    const entry = this.tabs.get(tabId);
+  }> {
+    const entry = await this.loadTab(tabId);
     if (!entry) return { latest: null, previous: null };
 
     return {
@@ -229,19 +286,39 @@ class SnapshotStoreImpl {
     };
   }
 
-  /** Remove stale entries across all tabs. Call periodically. */
-  pruneStale(): void {
+  async pruneStale(): Promise<void> {
     const now = Date.now();
-    for (const [tabId, entry] of this.tabs) {
-      if (now - entry.latest.updatedAt > TTL_MS) {
-        this.tabs.delete(tabId);
+    try {
+      const allData = await chrome.storage.local.get(null);
+      const keysToRemove: string[] = [];
+
+      for (const key in allData) {
+        if (key.startsWith("snapshot_")) {
+          const entry = allData[key] as TabEntry;
+          // Safety check: ensure entry has the expected structure
+          if (entry?.latest?.updatedAt && now - entry.latest.updatedAt > TTL_MS) {
+            keysToRemove.push(key);
+            // Also remove from in-memory cache if present
+            const tabId = parseInt(key.replace("snapshot_", ""), 10);
+            if (!isNaN(tabId)) {
+              this.tabs.delete(tabId);
+            }
+          }
+        }
       }
+
+      if (keysToRemove.length > 0) {
+        await chrome.storage.local.remove(keysToRemove);
+      }
+    } catch (err) {
+      console.error("Failed to prune stale snapshots:", err);
     }
   }
 
   /** Clear a specific tab's data. */
-  clearTab(tabId: number): void {
+  async clearTab(tabId: number): Promise<void> {
     this.tabs.delete(tabId);
+    await chrome.storage.local.remove(`snapshot_${tabId}`);
   }
 
   // ─── Private ───

@@ -164,6 +164,25 @@
   40% { transform: scale(1.2); opacity: 1; }
 }
 
+@keyframes slotRollIn {
+  0%   { transform: translateY(-110%); opacity: 0; }
+  15%  { transform: translateY(4%); opacity: 1; }
+  25%  { transform: translateY(0); opacity: 1; }
+  82%  { transform: translateY(0); opacity: 1; }
+  100% { transform: translateY(110%); opacity: 0; }
+}
+
+.slot-roll-in {
+  display: inline-block;
+  animation: slotRollIn 0.7s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+/* Lock document height so only the messages flex child scrolls */
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+}
+
 /* Base Styles */
 body {
   @apply bg-bg-primary text-text-primary font-sans leading-[1.55] antialiased transition-colors duration-200;

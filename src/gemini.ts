@@ -43,34 +43,82 @@ export type StreamChunk = {
 // TOOL DECLARATIONS
 // ═══════════════════════════════════════════════════════════
 
-export const PAGE_CONTENT_TOOLS = [
+// ─── Tool declarations split by mode ───
+const READ_DECLARATIONS = [
   {
-    functionDeclarations: [
-      {
-        name: "read_page_chunks",
-        description:
-          "Read specific chunks of the user's web page content. The page has been split into numbered chunks. Use the 'source' parameter to choose between the current page ('latest') or the previous version ('previous').",
-        parameters: {
-          type: "object",
-          properties: {
-            source: {
-              type: "string",
-              enum: ["latest", "previous"],
-              description:
-                "Which version to read from: 'latest' (current page) or 'previous' (page state from last message). Defaults to 'latest'.",
-            },
-            indices: {
-              type: "array",
-              items: { type: "integer" },
-              description: "Chunk indices (0-based) to read",
-            },
-          },
-          required: ["indices"],
+    name: "read_page_chunks",
+    description:
+      "Read specific chunks of the user's web page content. The page has been split into numbered chunks. Use the 'source' parameter to choose between the current page ('latest') or the previous version ('previous').",
+    parameters: {
+      type: "object",
+      properties: {
+        source: {
+          type: "string",
+          enum: ["latest", "previous"],
+          description:
+            "Which version to read from: 'latest' (current page) or 'previous' (page state from last message). Defaults to 'latest'.",
+        },
+        indices: {
+          type: "array",
+          items: { type: "integer" },
+          description: "Chunk indices (0-based) to read",
         },
       },
-    ],
+      required: ["indices"],
+    },
+  },
+  {
+    name: "read_editable_content",
+    description:
+      "Read the raw text content of a specific code editor, textarea, or rich-text input block found on the user's current page.",
+    parameters: {
+      type: "object",
+      properties: {
+        source: {
+          type: "string",
+          enum: ["latest", "previous"],
+          description: "Which page version to read from. Defaults to 'latest'.",
+        },
+        keys: {
+          type: "array",
+          items: { type: "string" },
+          description: "The exact keys of the editable content to read (e.g., ['monaco_1', 'textarea_2']).",
+        },
+      },
+      required: ["keys"],
+    },
   },
 ];
+
+const WRITE_DECLARATION = {
+  name: "write_editable_content",
+  description:
+    "Edit text in a code editor, textarea, or input field on the user's page using search & replace. Specify the exact text to find and what to replace it with. To type into an empty field, use find='' (empty string) and replace='your text'. Preserves undo history.",
+  parameters: {
+    type: "object",
+    properties: {
+      key: {
+        type: "string",
+        description: "The key of the editable to write to (e.g., 'input_1', 'monaco_1').",
+      },
+      find: {
+        type: "string",
+        description: "The exact text to find. Use '' (empty string) to set the entire value.",
+      },
+      replace: {
+        type: "string",
+        description: "The text to replace the found text with.",
+      },
+    },
+    required: ["key", "find", "replace"],
+  },
+};
+
+/** Ask mode — read-only tools (no write) */
+export const ASK_TOOLS = [{ functionDeclarations: READ_DECLARATIONS }];
+
+/** Edit mode — read + write tools */
+export const EDIT_TOOLS = [{ functionDeclarations: [...READ_DECLARATIONS, WRITE_DECLARATION] }];
 
 // ═══════════════════════════════════════════════════════════
 // HELPER FUNCTIONS
@@ -85,6 +133,7 @@ function buildRequestBody(params: {
   tools?: any[];
   maxOutputTokens?: number;
   temperature?: number;
+  thinkingLevel?: "high" | "low";
   providerConfig: any;
   isAntigravity: boolean;
 }): Record<string, unknown> {
@@ -96,6 +145,7 @@ function buildRequestBody(params: {
     tools,
     maxOutputTokens,
     temperature,
+    thinkingLevel,
     providerConfig,
     isAntigravity,
   } = params;
@@ -118,6 +168,10 @@ function buildRequestBody(params: {
       generationConfig: {
         ...(maxOutputTokens && { maxOutputTokens }),
         ...(temperature !== undefined && { temperature }),
+        thinkingConfig: {
+          includeThoughts: true,
+          thinkingLevel: thinkingLevel ?? "high",
+        },
       },
     },
     userAgent: providerConfig.userAgent,
@@ -133,12 +187,17 @@ async function executeRequest(params: {
   modelId: string;
   providerConfig: any;
   requestBody: Record<string, unknown>;
+  signal?: AbortSignal;
 }): Promise<{ response?: Response; error?: Error }> {
-  const { accessToken, projectId, modelId, providerConfig, requestBody } = params;
+  const { accessToken, projectId, modelId, providerConfig, requestBody, signal } = params;
   let response: Response | undefined;
   let lastError: Error | undefined;
 
   for (const endpoint of providerConfig.endpoints) {
+    // Reset per-endpoint so a stale error from a previous endpoint doesn't
+    // masquerade as the final error if a later endpoint fails differently.
+    lastError = undefined;
+
     const url = `${endpoint}/v1internal:streamGenerateContent?alt=sse`;
 
     // 🔍 DEBUG: Log basic request details (endpoint + model)
@@ -165,6 +224,7 @@ async function executeRequest(params: {
             ...(isClaudeThinkingModel(modelId) ? { "anthropic-beta": CLAUDE_THINKING_BETA_HEADER } : {}),
           },
           body: JSON.stringify(requestBody),
+          signal,
         });
 
         if (response.ok) break; // Success!
@@ -190,7 +250,8 @@ async function executeRequest(params: {
             continue; // Retry same endpoint
           } else {
              // Too long to wait — try next endpoint or fail
-             lastError = new Error("Rate limit exceeded. Please try again in 30 seconds.");
+             const waitMsg = match?.[1] ? `Please try again in ${waitSeconds - 1} seconds.` : "Please try again later.";
+             lastError = new Error(`Rate limit exceeded. ${waitMsg}`);
              break; // Break inner loop, try next endpoint
           }
         }
@@ -215,6 +276,13 @@ async function executeRequest(params: {
 
       } catch (err) {
         lastError = err instanceof Error ? err : new Error(String(err));
+        
+        // If aborted, stop retrying immediately
+        if (lastError.name === "AbortError") {
+          console.log("⏹️ [STREAM] Fetch aborted by user.");
+          break;
+        }
+
         // Network error? Wait and retry
         await new Promise((r) => setTimeout(r, 1000 * Math.pow(2, attempt)));
       }
@@ -317,13 +385,15 @@ export async function* streamGeminiChat(params: {
   projectId: string;
   prompt?: string;
   history?: ChatMessage[];
-  messages?: ChatMessage[];    // pre-built conversation (used by agentic loop)
+  messages?: ChatMessage[];
   model?: string;
   systemPrompt?: string;
   tools?: any[];
   maxOutputTokens?: number;
   temperature?: number;
+  thinkingLevel?: "high" | "low";
   provider?: AuthProvider;
+  signal?: AbortSignal;
 }): AsyncGenerator<StreamChunk> {
   const providerId = params.provider ?? "antigravity";
   const config = getProvider(providerId);
@@ -347,6 +417,7 @@ export async function* streamGeminiChat(params: {
     tools: params.tools,
     maxOutputTokens: params.maxOutputTokens,
     temperature: params.temperature,
+    thinkingLevel: params.thinkingLevel,
     providerConfig: config,
     isAntigravity,
   });
@@ -357,6 +428,7 @@ export async function* streamGeminiChat(params: {
     modelId,
     providerConfig: config,
     requestBody,
+    signal: params.signal,
   });
 
   if (error || !response) {

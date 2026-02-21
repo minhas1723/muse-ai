@@ -21,6 +21,7 @@ import "./app.css";
 import type { AuthStatus, Message, SessionMetadata } from "./types";
 import type { AuthProvider } from "./providers";
 import { messagesToApiHistory } from "./utils";
+import { resolveSystemPrompt, NONE_ID } from "./personalities";
 
 // Components
 import { ChatInput } from "./components/ChatInput";
@@ -33,33 +34,138 @@ import { ManualAuthScreen } from "./components/ManualAuthScreen";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 
 // ═══════════════════════════════════════════════════════════
+// MESSAGES AREA — fills all space above the input bar
+// Uses ResizeObserver so it always knows the exact input bar height.
+// ═══════════════════════════════════════════════════════════
+
+interface MessagesAreaProps {
+  auth: AuthStatus | null;
+  messages: Message[];
+  isStreaming: boolean;
+  model: string;
+  loginLoading: boolean;
+  loginError: string | null;
+  messagesEndRef: React.RefObject<HTMLDivElement | null>;
+  onLogin: () => void;
+  onSuggestionClick: (s: string) => void;
+}
+
+function MessagesArea({
+  auth,
+  messages,
+  isStreaming,
+  model,
+  loginLoading,
+  loginError,
+  messagesEndRef,
+  onLogin,
+  onSuggestionClick,
+}: MessagesAreaProps) {
+  const [inputBarHeight, setInputBarHeight] = React.useState(0);
+  const [topBarHeight, setTopBarHeight] = React.useState(0);
+
+  React.useEffect(() => {
+    const bar = document.getElementById("chat-input-bar");
+    const topBar = document.getElementById("chat-top-bar");
+
+    if (bar) {
+      // Measure immediately
+      setInputBarHeight(bar.getBoundingClientRect().height);
+
+      // Watch for size changes (textarea grow/shrink, menus opening, etc.)
+      const ro = new ResizeObserver(() => {
+        setInputBarHeight(bar.getBoundingClientRect().height);
+      });
+      ro.observe(bar);
+    }
+
+    if (topBar) {
+      setTopBarHeight(topBar.getBoundingClientRect().height);
+
+      const ro = new ResizeObserver(() => {
+        setTopBarHeight(topBar.getBoundingClientRect().height);
+      });
+      ro.observe(topBar);
+    }
+
+    return () => {
+      // Cleanup handled by closure
+    };
+  }, [auth?.loggedIn]); // re-run when we go logged-in so the bars appear
+
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        top: topBarHeight,
+        left: 0,
+        right: 0,
+        bottom: inputBarHeight,
+        overflowY: 'auto',
+        overflowX: 'hidden',
+      }}
+      className="scrollbar-thin scrollbar-thumb-surface-3 scrollbar-track-transparent"
+    >
+      {!auth?.loggedIn ? (
+        <LoginScreen
+          onLogin={onLogin}
+          loading={loginLoading}
+          error={loginError}
+        />
+      ) : messages.length === 0 ? (
+        <EmptyState
+          email={auth.email}
+          onSuggestionClick={onSuggestionClick}
+        />
+      ) : (
+        <div className="py-3">
+          {messages.map((msg, i) => (
+            <ChatMessage
+              key={i}
+              message={msg}
+              isLast={i === messages.length - 1}
+              model={model}
+              isStreaming={isStreaming && i === messages.length - 1}
+            />
+          ))}
+          <div ref={messagesEndRef} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
 // APP COMPONENT
 // ═══════════════════════════════════════════════════════════
 
 export function App() {
   const [auth, setAuth] = useState<AuthStatus | null>(null);
-  
+
   // Chat State
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
-  const [model, setModel] = useState("gemini-3-flash-preview");
-  const [systemPrompt, setSystemPrompt] = useState("");
-  const [pageContextEnabled, setPageContextEnabled] = useState(true);
-  
+  const [model, setModel] = useState("gemini-3-pro-preview");
+  const [agentMode, setAgentMode] = useState<"ask" | "edit">("ask");
+  const [thinkingLevel, setThinkingLevel] = useState<"high" | "low">("high");
+
   // Session State
   const [sessions, setSessions] = useState<SessionMetadata[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
-  
+
   // UI State
   const [loginLoading, setLoginLoading] = useState(false);
   const [showManualAuth, setShowManualAuth] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [loginProvider, setLoginProvider] = useState<AuthProvider>("gemini-cli");
+  const [activePersonalityId, setActivePersonalityId] = useState<string>(NONE_ID);
+  const [customPrompt, setCustomPrompt] = useState("");
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const activePortRef = useRef<chrome.runtime.Port | null>(null);
 
   // ─── Init ───
   const checkAuth = useCallback(async () => {
@@ -90,11 +196,20 @@ export function App() {
       await loadSessions();
       // Load persisted page context preference
       try {
-        const stored = await chrome.storage.local.get("pageContextEnabled");
-        if (typeof stored.pageContextEnabled === "boolean") {
-          setPageContextEnabled(stored.pageContextEnabled);
+        const stored = await chrome.storage.local.get(["activePersonalityId", "customSystemPrompt", "thinkingLevel", "agentMode"]);
+        if (typeof stored.activePersonalityId === "string") {
+          setActivePersonalityId(stored.activePersonalityId);
         }
-      } catch {}
+        if (typeof stored.customSystemPrompt === "string") {
+          setCustomPrompt(stored.customSystemPrompt);
+        }
+        if (stored.thinkingLevel === "high" || stored.thinkingLevel === "low") {
+          setThinkingLevel(stored.thinkingLevel);
+        }
+        if (stored.agentMode === "ask" || stored.agentMode === "edit") {
+          setAgentMode(stored.agentMode);
+        }
+      } catch { }
     })();
   }, [checkAuth, loadSessions]);
 
@@ -129,11 +244,11 @@ export function App() {
   const handleDeleteSession = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (!confirm("Delete this chat?")) return;
-    
+
     try {
       await chrome.runtime.sendMessage({ type: "deleteSession", id });
       setSessions((prev) => prev.filter((s) => s.id !== id));
-      
+
       if (currentSessionId === id) {
         handleNewChat();
       }
@@ -173,6 +288,26 @@ export function App() {
     setAuth(result);
     setMessages([]);
     setCurrentSessionId(null);
+  };
+
+  // ─── Personality ───
+  const handlePersonalityChange = (id: string) => {
+    setActivePersonalityId(id);
+    chrome.storage.local.set({ activePersonalityId: id });
+  };
+
+  const handleCustomPromptChange = (val: string) => {
+    setCustomPrompt(val);
+    chrome.storage.local.set({ customSystemPrompt: val });
+  };
+
+  // Derive the effective system prompt from the active personality
+  const effectiveSystemPrompt = resolveSystemPrompt(activePersonalityId, customPrompt);
+
+  const handleStop = () => {
+    if (activePortRef.current) {
+      activePortRef.current.postMessage({ type: "stop" });
+    }
   };
 
   // ─── Send Message ───
@@ -219,6 +354,7 @@ export function App() {
     // 3. Connect to API
     const history = messagesToApiHistory(messages);
     const port = chrome.runtime.connect({ name: "gemini-stream" });
+    activePortRef.current = port;
 
     // Helper to save session progress
     const saveProgress = (msgs: Message[]) => {
@@ -233,9 +369,9 @@ export function App() {
           updatedAt: Date.now(),
         },
       }).then(() => {
-         // Refresh list to update titles/timestamps
-         loadSessions();
-      }).catch(() => {});
+        // Refresh list to update titles/timestamps
+        loadSessions();
+      }).catch(() => { });
     };
 
     // Buffer for text chunks to throttle re-renders
@@ -337,6 +473,7 @@ export function App() {
       }
       if (msg.type === "done") {
         setIsStreaming(false);
+        activePortRef.current = null;
         if (rafId) cancelAnimationFrame(rafId);
         port.disconnect();
 
@@ -356,6 +493,17 @@ export function App() {
             textBuffer = "";
             thinkingBuffer = "";
           }
+          
+          if (msg.aborted) {
+            const last = updated[assistantIdx];
+            if (last) {
+              updated[assistantIdx] = {
+                ...last,
+                content: last.content + "\n\n*[Stopped by user]*"
+              };
+            }
+          }
+
           saveProgress(updated);
           return updated;
         });
@@ -367,8 +515,10 @@ export function App() {
       prompt: trimmed,
       history,
       model,
-      systemPrompt: systemPrompt || undefined,
-      pageContextEnabled,
+      systemPrompt: effectiveSystemPrompt || undefined,
+      pageContextEnabled: true,
+      agentMode,
+      thinkingLevel,
     });
   };
 
@@ -386,7 +536,7 @@ export function App() {
   // Loading state
   if (auth === null) {
     return (
-      <div className="flex flex-col h-screen items-center justify-center bg-bg-primary">
+      <div className="fixed inset-0 flex flex-col items-center justify-center bg-bg-primary">
         <span className="w-[28px] h-[28px] border-[3px] border-accent-primary/20 border-t-accent-primary rounded-full animate-spin" />
       </div>
     );
@@ -395,11 +545,11 @@ export function App() {
   // Manual Auth Screen
   if (showManualAuth) {
     return (
-      <div className="flex flex-col h-screen overflow-hidden bg-bg-primary text-text-primary">
+      <div className="fixed inset-0 flex flex-col overflow-hidden bg-bg-primary text-text-primary">
         <ManualAuthScreen
           provider={loginProvider}
-          onComplete={handleManualAuthComplete} 
-          onCancel={() => setShowManualAuth(false)} 
+          onComplete={handleManualAuthComplete}
+          onCancel={() => setShowManualAuth(false)}
         />
       </div>
     );
@@ -408,12 +558,27 @@ export function App() {
   // Main App
   return (
     <ErrorBoundary>
-      <div className="flex flex-col h-screen overflow-hidden bg-bg-primary text-text-primary">
-
-
-        {/* History Sidebar */}
+      {/*
+        ROOT CONTAINER:
+        position:fixed pins us to exactly the panel viewport,
+        completely immune to document flow or content size changes.
+        position:relative here so children can use position:absolute
+        relative to this container.
+      */}
+      <div
+        className="bg-bg-primary text-text-primary"
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          overflow: 'hidden',
+        }}
+      >
+        {/* History Sidebar — absolute overlay */}
         {showHistory && auth?.loggedIn && (
-          <HistorySidebar 
+          <HistorySidebar
             sessions={sessions}
             currentId={currentSessionId}
             onSelect={handleLoadSession}
@@ -422,66 +587,117 @@ export function App() {
           />
         )}
 
-
-
-        {/* Main area */}
-        <main className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-thin scrollbar-thumb-surface-3 scrollbar-track-transparent">
-          {!auth?.loggedIn ? (
-            <LoginScreen 
-              onLogin={handleLogin} 
-              loading={loginLoading} 
-              error={loginError} 
-            />
-          ) : messages.length === 0 ? (
-            <EmptyState 
-              email={auth.email} 
-              onSuggestionClick={(s) => {
-                setInput(s);
-                inputRef.current?.focus();
-              }} 
-            />
-          ) : (
-            <div className="py-3">
-              {messages.map((msg, i) => (
-                <ChatMessage
-                  key={i}
-                  message={msg}
-                  isLast={i === messages.length - 1}
-                  model={model}
-                />
-              ))}
-              <div ref={messagesEndRef} />
-            </div>
-          )}
-        </main>
-
-        {/* Input area */}
+        {/*
+          TOP BAR — pinned absolutely to the top.
+          Fixed position, never moves.
+        */}
         {auth?.loggedIn && (
-          <ChatInput
-            input={input}
-            onInputChange={setInput}
-            onSend={handleSend}
-            onKeyDown={handleKeyDown}
-            isStreaming={isStreaming}
-            inputRef={inputRef}
-            model={model}
-            onModelChange={setModel}
-            onNewChat={handleNewChat}
-            onToggleHistory={() => {
-              setShowHistory(!showHistory);
+          <div
+            id="chat-top-bar"
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              zIndex: 5,
             }}
-            onLogout={handleLogout}
-            pageContextEnabled={pageContextEnabled}
-            onPageContextToggle={() => {
-              const next = !pageContextEnabled;
-              setPageContextEnabled(next);
-              chrome.storage.local.set({ pageContextEnabled: next });
-            }}
-            systemPrompt={systemPrompt}
-            onSystemPromptChange={setSystemPrompt}
-            provider={auth?.provider}
-          />
+            className="border-b border-border bg-bg-primary"
+          >
+            <div className="px-4 py-3 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-text-primary">Muse</h2>
+              <div className="flex items-center gap-0.5">
+                <button
+                  type="button"
+                  onClick={() => setShowHistory(!showHistory)}
+                  className="w-[30px] h-[30px] p-0 bg-transparent text-text-tertiary rounded-lg flex items-center justify-center transition-colors hover:bg-bg-hover hover:text-text-primary"
+                  title="History"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="12" cy="12" r="10" />
+                    <polyline points="12 6 12 12 16 14" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleNewChat}
+                  className="w-[30px] h-[30px] p-0 bg-transparent text-text-tertiary rounded-lg flex items-center justify-center transition-colors hover:bg-bg-hover hover:text-text-primary"
+                  title="New Chat"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M12 5v14M5 12h14" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
         )}
+
+        {/*
+          INPUT AREA — pinned absolutely to the bottom.
+          This is measured by the browser INDEPENDENTLY of the messages area.
+          It will NEVER move, regardless of how much content is above it.
+        */}
+        {auth?.loggedIn && (
+          <div
+            id="chat-input-bar"
+            style={{
+              position: 'absolute',
+              bottom: 0,
+              left: 0,
+              right: 0,
+              zIndex: 5,
+            }}
+          >
+            <ChatInput
+              input={input}
+              onInputChange={setInput}
+              onSend={handleSend}
+              onStop={handleStop}
+              onKeyDown={handleKeyDown}
+              isStreaming={isStreaming}
+              inputRef={inputRef}
+              model={model}
+              onModelChange={setModel}
+              activePersonalityId={activePersonalityId}
+              onPersonalityChange={handlePersonalityChange}
+              customPrompt={customPrompt}
+              onCustomPromptChange={handleCustomPromptChange}
+              thinkingLevel={thinkingLevel}
+              onThinkingLevelChange={(level) => {
+                setThinkingLevel(level);
+                chrome.storage.local.set({ thinkingLevel: level });
+              }}
+              provider={auth?.provider}
+              agentMode={agentMode}
+              onAgentModeChange={(mode) => {
+                setAgentMode(mode);
+                chrome.storage.local.set({ agentMode: mode });
+              }}
+              onLogout={handleLogout}
+            />
+          </div>
+        )}
+
+        {/*
+          MESSAGES AREA — fills the remaining space by using top:0 and
+          bottom equal to the height of the input bar.
+          We use a CSS custom property set by a ResizeObserver so the
+          messages area always knows exactly how tall the input bar is.
+        */}
+        <MessagesArea
+          auth={auth}
+          messages={messages}
+          isStreaming={isStreaming}
+          model={model}
+          loginLoading={loginLoading}
+          loginError={loginError}
+          messagesEndRef={messagesEndRef}
+          onLogin={handleLogin}
+          onSuggestionClick={(s: string) => {
+            setInput(s);
+            inputRef.current?.focus();
+          }}
+        />
       </div>
     </ErrorBoundary>
   );

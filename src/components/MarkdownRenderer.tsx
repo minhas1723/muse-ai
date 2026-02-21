@@ -78,11 +78,16 @@ const components: Components = {
   ),
 
   // Code
-  code: ({ node, inline, className, children, ...props }: any) => {
+  code: ({ node, className, children, ...props }: any) => {
     const match = /language-(\w+)/.exec(className || "");
     const lang = match ? match[1] : "";
 
-    if (!inline && match) {
+    // react-markdown v7+ dropped the `inline` prop.
+    // Block code always has a trailing newline in children; inline never does.
+    const childStr = typeof children === "string" ? children : String(children ?? "");
+    const isInline = !childStr.includes("\n");
+
+    if (!isInline && match) {
       return (
         <div className="my-2 bg-surface-1 border border-border rounded-lg overflow-hidden">
           {lang && (
@@ -100,7 +105,7 @@ const components: Components = {
     }
 
     // Fallback for block code without language
-    if (!inline) {
+    if (!isInline) {
       return (
         <div className="my-2 bg-surface-1 border border-border rounded-lg overflow-hidden">
           <pre className="p-3 overflow-x-auto text-[11.5px] leading-relaxed">
@@ -114,7 +119,7 @@ const components: Components = {
 
     return (
       <code
-        className="px-[5px] py-[1px] bg-surface-1 border border-border-subtle rounded-[4px] font-mono text-[0.9em] text-accent-primary"
+        className="px-[4px] py-[1px] bg-accent-primary/10 rounded-[3px] font-mono text-[0.88em] text-accent-primary"
         {...props}
       >
         {children}
